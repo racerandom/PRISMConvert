@@ -1,0 +1,5 @@
+data/*
+outputs/*
+tmp.sent
+tmp.txt
+*.swp
