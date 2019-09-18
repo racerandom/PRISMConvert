@@ -7,7 +7,7 @@
 > git clone git@bitbucket.org:fei-cheng/prismconverter.git  
 > cd PRISMConverter  
 
-## convert xls to json
+## 1. convert xls to json
 
 For the confort of operating information flexibly, we keep all the xls information into a json file first, for example:  
 
@@ -41,7 +41,7 @@ For the confort of operating information flexibly, we keep all the xls informati
 The 'findings'/'所見' annotation in the original 'xls' files contains several types of annotation violating the xml standard. We list some of them here: '\<胸部CT\>', '\<d, correction=','\<\<a', '="suspicious\>', etc. 
 
 
-## convert json to brat 
+## 2. convert json to brat 
 extracting 'findings'/'所見' from the json file and concat them into the brat files (200 findings per file) for annotation. Each 'finding' will be lead by a comment line as the follow:
 
 > \#\# line id: 1 ||| 匿名ID: 3276171
@@ -57,7 +57,7 @@ extracting 'findings'/'所見' from the json file and concat them into the brat 
 > --json json\_file \\  
 > --brat brat\_file  
 
-## append brat annotation to json
+## 3. append brat annotation to json
 
 
 ### Run:
