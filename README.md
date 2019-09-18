@@ -4,8 +4,8 @@
 
 
 ## Install
-> git clone https://github.com/racerandom/PRISMConvert.git  
-> cd PRISMConvert  
+> git clone git@bitbucket.org:fei-cheng/prismconverter.git  
+> cd PRISMConverter  
 
 ## convert xls to json
 
@@ -33,9 +33,9 @@ For the confort of operating information flexibly, we keep all the xls informati
 ```
 				
 ### Run:
-> python format\_converter.py \   
-> --mode 'xls2json' \  
-> --xls xls\_file \  
+> python format\_converter.py \\   
+> --mode 'xls2json' \\  
+> --xls xls\_file \\  
 > --json json\_file  
 
 The 'findings'/'所見' annotation in the original 'xls' files contains several types of annotation violating the xml standard. We list some of them here: '\<胸部CT\>', '\<d, correction=','\<\<a', '="suspicious\>', etc. 
@@ -52,19 +52,19 @@ extracting 'findings'/'所見' from the json file and concat them into the brat 
 
 
 ### Run:
-> python format\_converter.py \  
-> --mode 'json2brat' \  
-> --json json\_file \  
+> python format\_converter.py \\  
+> --mode 'json2brat' \\  
+> --json json\_file \\  
 > --brat brat\_file  
 
 ## append brat annotation to json
 
 
 ### Run:
-> python format\_converter.py \  
-> --mode 'brat2json' \  
-> --json json\_file \  
-> --brat brat\_file \  
+> python format\_converter.py \\  
+> --mode 'brat2json' \\  
+> --json json\_file \\  
+> --brat brat\_file \\  
 > --new\_json new\_json\_file
 
 TO-DO: The brat relations cannot be appended into xml format yet. I will update it soon.
