@@ -4,8 +4,8 @@
 
 
 ## Install
-> git clone ....  
-> cd 
+> git clone https://github.com/racerandom/PRISMConvert.git  
+> cd PRISMConvert  
 
 ## convert xls to json
 
@@ -38,7 +38,8 @@ For the confort of operating information flexibly, we keep all the xls informati
 > --xls xls\_file \  
 > --json json\_file  
 
-* the xml annotation in the original 'xls' files contains several types of annotation mistakes resulting xml parsing errors. We list some here: '<胸部CT>', <d, correction='
+The 'findings'/'所見' annotation in the original 'xls' files contains several types of annotation violating the xml standard. We list some of them here: '\<胸部CT\>', '\<d, correction=','\<\<a', '="suspicious\>', etc. 
+
 
 ## convert json to brat 
 extracting 'findings'/'所見' from the json file and concat them into the brat files (200 findings per file) for annotation. Each 'finding' will be lead by a comment line as the follow:
@@ -66,5 +67,8 @@ extracting 'findings'/'所見' from the json file and concat them into the brat 
 > --brat brat\_file \  
 > --new\_json new\_json\_file
 
-TO-DO: The brat relations cannot be kept into xml format yet. I will update it soon.
+TO-DO: The brat relations cannot be appended into xml format yet. I will update it soon.
 
+## example:
+
+please check 'pipeline.sh'
