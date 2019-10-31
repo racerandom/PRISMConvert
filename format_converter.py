@@ -44,6 +44,12 @@ def fix_xml_str(xml_str):
     xml_str = xml_str.replace('="suspicious>', '="suspicious">')
     return xml_str
 
+def escape_xml_str(xml_str):
+    xml_str = xml_str.replace('<', '&lt;')
+    xml_str = xml_str.replace('>', '&gt;')
+    xml_str = xml_str.replace('&', '&amp;')
+    return xml_str
+
 
 def read_xls(xls_file):
     json_dict = {}
@@ -51,7 +57,7 @@ def read_xls(xls_file):
     json_dict['文章名'] = xls_file.split('/')[-1]
 
     if xls_file.endswith('csv'):
-        df = pd.read_csv(xls_file, index_col=None, date_parser=None, encoding='shift_jis').fillna('')
+        df = pd.read_csv(xls_file, index_col=None, date_parser=None, encoding='cp932').fillna('')
     elif xls_file.endswith('xlsx'):
         df = pd.read_excel(xls_file, index_col=None, sheet_name=0, date_parser=None).fillna('')
     else:
@@ -82,13 +88,38 @@ def split_sent_to_xml(text, head_line):
     """ execute outside sentence-splitter code """
     with open('tmp.txt', 'w') as fo:
         fo.write(text)
-    script = '''cat tmp.txt | perl sentence-splitter.pl | python split_tnm.py > tmp.sent'''
+    script = '''cat tmp.txt | perl -I sentence-splitter.pl | python split_tnm.py  > tmp.sent'''
     subprocess.Popen(script, shell=True).wait()
     with open('tmp.sent') as fi:
         xml_str = '<doc>\n' + \
                   '<line>%s</line>\n' % head_line + \
                   '\n'.join(['<line>' + line.strip() + '</line>' for line in fi]) + '\n</doc>\n'
     return xml_str
+
+
+def extract_txt_from_xls(xls_file, txt_file, split_sent=True, segment=True):
+    from pyknp import Juman
+    import mojimoji
+    juman = Juman()
+
+    json_dict = read_xls(xls_file)
+    tmp_file = txt_file if not split_sent else 'tmp.raw'
+    with open(tmp_file, 'w', encoding="utf-8") as fo:
+        for report in json_dict['読影所見'].values():
+            fo.write('%s\n' % report['findings'])
+    if split_sent:
+        script = '''cat tmp.raw | perl sentence-splitter.pl | python split_tnm.py  > tmp.sent'''
+        subprocess.Popen(script, shell=True).wait()
+    if segment:
+        with open('tmp.sent', 'r') as fi, open(txt_file, 'w') as fo:
+            for line in fi:
+                unspace_line = ''.join(line.strip().split())
+                if not unspace_line:
+                    continue
+                seg_line = ' '.join([w.midasi for w in juman.analysis(mojimoji.han_to_zen(unspace_line)).mrph_list()])
+                fo.write('%s\n' % seg_line)
+    os.remove('tmp.raw')
+    os.remove('tmp.sent')
 
 
 def convert_xml_to_brat(xml_file, output_dir='data/tmp'):
@@ -130,23 +161,75 @@ def convert_xml_to_brat(xml_file, output_dir='data/tmp'):
             foa.write('%s\t%s\t%i\t%i\t%s\n' % (mid, mtype, offs_b, offs_e, m))
 
 
-def extract_brat_from_json(json_file, brat_file, line_delimiter=200):
+def extract_brat_from_json(json_file, brat_file, line_delimiter=None):
+    import mojimoji
+
+    line_count, char_count = [], []
+
     with open(json_file) as json_fi:
         json_dict = json.load(json_fi)
         char_toks, tags, attrs = [], [], []
         char_offset, tag_offset, attr_offset = 0, 1, 1
+        prev_delimiter_flag = None
         for line_id, instance in json_dict['読影所見'].items():
 
             line_id = int(line_id)
-            # if line_id != '1':
-            #     continue
+
             patient_id = str(instance['匿名ID' if '匿名ID' in instance else 'ID'])
-            finding = instance['所見' if '所見' in instance else 'findings']
+            if '所見' in instance:
+                finding = instance['所見']
+            elif 'findings' in instance:
+                finding = instance['findings']
+            elif '記事内容' in instance:
+                finding = instance['記事内容']
             finding = fix_finding_str(finding)
-            head_line = "## line id: %i ||| 匿名ID: %s" % (line_id, patient_id)
+            finding = escape_xml_str(finding)
+            finding = mojimoji.han_to_zen(finding)
+            head_items = ["line id: %i" % line_id]
+            if '表示順' in instance:
+                curr_delimiter_flag = instance['表示順']
+                head_items.append("表示順: %i" % curr_delimiter_flag)
+                if not line_delimiter:
+                    if prev_delimiter_flag and (curr_delimiter_flag != prev_delimiter_flag or line_id == len(json_dict['読影所見'])):
+
+                        sub_filename = "表示順%s" % prev_delimiter_flag
+
+                        with open('%s.%s.txt' % (brat_file, sub_filename), 'w') as fot:
+                            fot.write('%s' % (''.join(char_toks)))
+
+                        with open('%s.%s.ann' % (brat_file, sub_filename), 'w') as foa:
+                            for tid, ttype, char_b, char_e, t in tags:
+                                # assert ''.join([char_toks[i] for i in range(offs_b, offs_e)]) == t
+                                foa.write('%s\t%s %s %s\t%s\n' % (
+                                    tid,
+                                    tag2name[ttype],
+                                    char_b,
+                                    char_e,
+                                    t
+                                ))
+
+                            for aid, key, tid, value in attrs:
+                                # assert ''.join([char_toks[i] for i in range(offs_b, offs_e)]) == t
+                                foa.write('%s\t%s %s %s\n' % (
+                                    aid,
+                                    key,
+                                    tid,
+                                    value
+                                ))
+                        char_toks, tags, attrs = [], [], []
+                        char_offset, tag_offset, attr_offset = 0, 1, 1
+
+                        print('Converted json to brat, 表示順: %s processed.' % prev_delimiter_flag)
+                prev_delimiter_flag = curr_delimiter_flag
+
+            head_items.append("匿名ID: %s" % patient_id.strip())
+            if 'タイトル' in instance:
+                if instance['タイトル'].strip() in ['I']:
+                    continue
+                head_items.append("タイトル: %s" % instance['タイトル'].strip())
+            head_line = "## %s" % ' ||| '.join(head_items)
             xml_str = split_sent_to_xml(finding, head_line)
             xml_str = fix_xml_str(xml_str)
-
             tmp_char_toks, tmp_tags, tmp_attrs = [], [], []
             tmp_char_offset, tmp_tag_offset, tmp_attr_offset = char_offset, tag_offset, attr_offset
             try:
@@ -192,6 +275,8 @@ def extract_brat_from_json(json_file, brat_file, line_delimiter=200):
                 char_offset, tag_offset, attr_offset = tmp_char_offset, tmp_tag_offset, tmp_attr_offset
                 for tid, ttype, char_b, char_e, t in tmp_tags:
                     assert ''.join([char_toks[i] for i in range(char_b, char_e)]) == t
+
+
             except Exception as ex:
                 print('[ERROR] line number：', line_id)
                 print(ex)
@@ -203,37 +288,38 @@ def extract_brat_from_json(json_file, brat_file, line_delimiter=200):
                     print(char_b, char_e, ''.join([char_toks[i] for i in range(char_b, char_e)]), t)
                 print()
 
-            if line_id % line_delimiter == 0 or line_id == len(json_dict['読影所見']):
+            if line_delimiter:
+                if line_id % line_delimiter == 0 or line_id == len(json_dict['読影所見']):
 
-                index_range_str = '%i-%i' % (100 * (math.ceil(line_id / 100) - int(line_delimiter / 100)) + 1, line_id)
+                    index_range_str = '%i-%i' % (100 * (math.ceil(line_id / 100) - int(line_delimiter / 100)) + 1, line_id)
 
-                with open('%s.%s.txt' % (brat_file, index_range_str), 'w') as fot:
-                    fot.write('%s' % (''.join(char_toks)))
+                    with open('%s.%s.txt' % (brat_file, index_range_str), 'w') as fot:
+                        fot.write('%s' % (''.join(char_toks)))
 
-                with open('%s.%s.ann' % (brat_file, index_range_str), 'w') as foa:
-                    for tid, ttype, char_b, char_e, t in tags:
-                        # assert ''.join([char_toks[i] for i in range(offs_b, offs_e)]) == t
-                        foa.write('%s\t%s %s %s\t%s\n' % (
-                            tid,
-                            tag2name[ttype],
-                            char_b,
-                            char_e,
-                            t
-                        ))
+                    with open('%s.%s.ann' % (brat_file, index_range_str), 'w') as foa:
+                        for tid, ttype, char_b, char_e, t in tags:
+                            # assert ''.join([char_toks[i] for i in range(offs_b, offs_e)]) == t
+                            foa.write('%s\t%s %s %s\t%s\n' % (
+                                tid,
+                                tag2name[ttype],
+                                char_b,
+                                char_e,
+                                t
+                            ))
 
-                    for aid, key, tid, value in attrs:
-                        # assert ''.join([char_toks[i] for i in range(offs_b, offs_e)]) == t
-                        foa.write('%s\t%s %s %s\n' % (
-                            aid,
-                            key,
-                            tid,
-                            value
-                        ))
+                        for aid, key, tid, value in attrs:
+                            # assert ''.join([char_toks[i] for i in range(offs_b, offs_e)]) == t
+                            foa.write('%s\t%s %s %s\n' % (
+                                aid,
+                                key,
+                                tid,
+                                value
+                            ))
 
-                char_toks, tags, attrs = [], [], []
-                char_offset, tag_offset, attr_offset = 0, 1, 1
+                    char_toks, tags, attrs = [], [], []
+                    char_offset, tag_offset, attr_offset = 0, 1, 1
 
-                print('Converted json to brat, number of line processed: %s' % line_id)
+                    print('Converted json to brat, number of line processed: %s' % line_id)
 
 
 def combine_brat_to_json(json_file, brat_file, new_json):
@@ -355,7 +441,7 @@ def convert_bio_to_xml(bio_file, xml_file):
 
 parser = ArgumentParser(description='Convert xls 読影所見 to the json format')
 parser.add_argument("--mode", dest="mode",
-                    help="convert_mode, i.e. x2j, j2b and b2j", metavar="CONVERT_MODE")
+                    help="convert_mode, i.e. xls2txt, xls2json, json2brat and brat2json", metavar="CONVERT_MODE")
 parser.add_argument("--xls", dest="xls_file",
                     help="input excel file", metavar="INPUT_FILE")
 parser.add_argument("--json", dest="json_file",
@@ -364,16 +450,19 @@ parser.add_argument("--brat", dest="brat_file",
                     help="output brat txt and ann files", metavar="ANNOTATION_FILE")
 parser.add_argument("--bio", dest="bio_file",
                     help="input bio file", metavar="BIO_FILE")
+parser.add_argument("--txt", dest="txt_file",
+                    help="output raw file", metavar="TXT_FILE")
 parser.add_argument("--xml", dest="xml_file",
                     help="output xml file", metavar="XML_FILE")
 parser.add_argument("--njson", dest="new_json",
                     help="output new json", metavar="OUTPUT_FILE")
-
 args = parser.parse_args()
 
 if args.mode in 'xls2json':
     json_dict = read_xls(args.xls_file)
     dump_json(json_dict, args.json_file)
+elif args.mode in 'xls2txt':
+    extract_txt_from_xls(args.xls_file, args.txt_file)
 elif args.mode == 'json2brat':
     extract_brat_from_json(args.json_file, args.brat_file)
 elif args.mode == 'brat2json':

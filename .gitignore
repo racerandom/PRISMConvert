@@ -1,5 +1,8 @@
+.ipynb_checkpoints/*
 data/*
 outputs/*
-tmp.sent
-tmp.txt
+saved_model/*
+*.sent
+*.txt
 *.swp
+*.ipynb
