@@ -32,7 +32,7 @@ def extend_bert_vocab(text_file, PRE_BERT, MODEL_URL):
     model.resize_token_embeddings(len(tokenizer))
 
     if os.path.exists(MODEL_URL):
-        raise ValueError("Output directory ({}) already exists and is not empty.".format(CV_MODEL_DIR))
+        raise ValueError("Output directory ({}) already exists and is not empty.".format(MODEL_URL))
     if not os.path.exists(MODEL_URL):
         os.makedirs(MODEL_URL)
     model.save_pretrained(MODEL_URL)

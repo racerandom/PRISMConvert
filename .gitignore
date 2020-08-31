@@ -6,3 +6,5 @@ saved_model/*
 *.txt
 *.swp
 *.ipynb
+*.sh
+.DS_Store

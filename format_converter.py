@@ -1,18 +1,32 @@
 # coding: utf-8
-import os, json, re
+import os
+import json
+import re
 import math
 import subprocess
 from argparse import ArgumentParser
 import xml.etree.ElementTree as ET
 import pandas as pd
 from datetime import date, datetime
+from textformatting import ssplit
+import sys
+sys.path.append("..")
+import data_utils
 
 tag2name = {
     'd': 'Disease',
     'a': 'Anatomical',
     'f': 'Feature',
     'c': 'Change',
-    'p': 'Pending'
+    'p': 'Pending',
+    'TIMEX3': 'TIMEX3',
+    't-test': 'TestTest',
+    't-key': 'TestKey',
+    't-val': 'TestVal',
+    'cc': 'ClinicalContext',
+    'r': 'Remedy',
+    'm-key': 'MedicineKey',
+    'm-val': 'MedicineVal',
 }
 
 name2tag = {v:k for k,v in tag2name.items()}
@@ -25,6 +39,7 @@ def fix_finding_str(finding_str):
 
 
 def fix_xml_str(xml_str):
+    xml_str = xml_str.replace('<代理診察>', '《代理診察》')
     xml_str = xml_str.replace('<胸部CT>', '《胸部CT》')
     xml_str = xml_str.replace('<胸部単純CT>', '《胸部単純CT》')
     xml_str = xml_str.replace('<ABD US>', '《ABD US》')
@@ -44,11 +59,11 @@ def fix_xml_str(xml_str):
     xml_str = xml_str.replace('="suspicious>', '="suspicious">')
     return xml_str
 
-def escape_xml_str(xml_str):
-    xml_str = xml_str.replace('<', '&lt;')
-    xml_str = xml_str.replace('>', '&gt;')
-    xml_str = xml_str.replace('&', '&amp;')
-    return xml_str
+# def escape_xml_str(xml_str):
+#     xml_str = xml_str.replace('<', '&lt;')
+#     xml_str = xml_str.replace('>', '&gt;')
+#     xml_str = xml_str.replace('&', '&amp;')
+#     return xml_str
 
 
 def read_xls(xls_file):
@@ -57,7 +72,7 @@ def read_xls(xls_file):
     json_dict['文章名'] = xls_file.split('/')[-1]
 
     if xls_file.endswith('csv'):
-        df = pd.read_csv(xls_file, index_col=None, date_parser=None, encoding='cp932').fillna('')
+        df = pd.read_csv(xls_file, index_col=None, date_parser=None, encoding='utf-8').fillna('')
     elif xls_file.endswith('xlsx'):
         df = pd.read_excel(xls_file, index_col=None, sheet_name=0, date_parser=None).fillna('')
     else:
@@ -86,11 +101,11 @@ def dump_json(dict_data, json_file):
 
 def split_sent_to_xml(text, head_line):
     """ execute outside sentence-splitter code """
-    with open('tmp.txt', 'w') as fo:
+    with open('tmp.txt', 'w', encoding='utf-8') as fo:
         fo.write(text)
     script = '''cat tmp.txt | perl -I sentence-splitter.pl | python split_tnm.py  > tmp.sent'''
     subprocess.Popen(script, shell=True).wait()
-    with open('tmp.sent') as fi:
+    with open('tmp.sent', 'r', encoding='utf-8') as fi:
         xml_str = '<doc>\n' + \
                   '<line>%s</line>\n' % head_line + \
                   '\n'.join(['<line>' + line.strip() + '</line>' for line in fi]) + '\n</doc>\n'
@@ -111,7 +126,7 @@ def extract_txt_from_xls(xls_file, txt_file, split_sent=True, segment=True):
         script = '''cat tmp.raw | perl sentence-splitter.pl | python split_tnm.py  > tmp.sent'''
         subprocess.Popen(script, shell=True).wait()
     if segment:
-        with open('tmp.sent', 'r') as fi, open(txt_file, 'w') as fo:
+        with open('tmp.sent', 'r', encoding='utf-8') as fi, open(txt_file, 'w', encoding='utf-8') as fo:
             for line in fi:
                 unspace_line = ''.join(line.strip().split())
                 if not unspace_line:
@@ -161,7 +176,89 @@ def convert_xml_to_brat(xml_file, output_dir='data/tmp'):
             foa.write('%s\t%s\t%i\t%i\t%s\n' % (mid, mtype, offs_b, offs_e, m))
 
 
-def extract_brat_from_json(json_file, brat_file, line_delimiter=None):
+def extract_normtime_from_json(json_file, normtime_file):
+    import mojimoji
+
+    with open(json_file) as json_fi:
+        json_dict = json.load(json_fi)
+        pid_to_print = None
+        pdate_to_print = None
+        present_lines = []
+        for line_id, instance in json_dict['読影所見'].items():
+
+            if 'ann' not in instance or not instance['タイトル']:
+                continue
+
+            present_id = str(instance['表示順'])
+            present_date = str(instance['記載日']).split('T')[0]
+
+            if pid_to_print and present_id != pid_to_print:
+                out_file = f"{normtime_file}_{pid_to_print}_{pdate_to_print}.txt"
+                with open(out_file, 'w', encoding='utf8') as fo:
+                    for out_line in present_lines:
+                        fo.write(out_line)
+                print(f"output file: {out_file}...")
+                present_lines = []
+
+            pid_to_print = present_id
+            pdate_to_print = present_date
+
+            head_items = []
+            head_items.append(f"line id: {line_id}")
+            head_items.append(f"表示順: {present_id}")
+            patient_id = str(instance['匿名ID'])
+            head_items.append(f"匿名ID: {patient_id}")
+            head_items.append(f"タイトル: {instance['タイトル'].strip()}")
+            head_items.append(f"記載日: {present_date}")
+            head_line = f"## {' ||| '.join(head_items)}"
+
+            finding = instance['ann']
+            # finding = '\n'.join(ssplit(finding))
+            xml_str = '<doc>\n' + \
+                      '<s>%s</s>\n' % head_line + \
+                      '\n'.join(['<s>' + line.strip() + '</s>' for line in finding.split('\n')]) + '\n</doc>\n'
+            # xml_str = "<doc><s><a>sjdf</a>sdf</s></doc>"
+            xml_str = fix_xml_str(xml_str)
+            # print(xml_str)
+            try:
+                root = ET.ElementTree(ET.fromstring(xml_str)).getroot()
+                for sent_node in root.iter('s'):
+                    sent_text, timex_list, char_index = [], [], 0
+                    for tag in sent_node.iter():
+
+                        if tag.text:
+                            text_char = list(tag.text.replace('\n', ''))
+                            sent_text.append(''.join(text_char))
+
+                            if tag.tag == 'TIMEX3':
+                                timex_entry = f"\t{char_index}\t{char_index + len(text_char)}\t{tag.attrib['type']}\n"
+                                timex_list.append(timex_entry)
+                            char_index += len(text_char)
+
+                        if tag.tail:
+                            tail_char = list(tag.tail.replace('\n', ''))
+                            sent_text.append(''.join(tail_char))
+                            char_index += len(tail_char)
+
+                    present_lines.append(f"{''.join(sent_text)}\n")
+                    for t in timex_list:
+                        present_lines.append(t)
+                    present_lines.append('\n')
+
+            except Exception as ex:
+                print('[ERROR] line number：', line_id)
+                print(ex)
+                print(xml_str)
+
+        if pid_to_print:
+            out_file = f"{normtime_file}_{pid_to_print}_{pdate_to_print}.txt"
+            with open(out_file, 'w', encoding='utf8') as fo:
+                for out_line in present_lines:
+                    fo.write(out_line)
+            print(f"output file: {out_file}...")
+
+
+def extract_brat_from_json(json_file, brat_file, sent_split=False):
     import mojimoji
 
     line_count, char_count = [], []
@@ -178,48 +275,49 @@ def extract_brat_from_json(json_file, brat_file, line_delimiter=None):
             patient_id = str(instance['匿名ID' if '匿名ID' in instance else 'ID'])
             if '所見' in instance:
                 finding = instance['所見']
-            elif 'findings' in instance:
-                finding = instance['findings']
-            elif '記事内容' in instance:
-                finding = instance['記事内容']
+            elif 'findings_demasked' in instance:
+                finding = instance['findings_demasked']
+            # elif '記事内容' in instance:
+            #     finding = instance['記事内容']
+            elif 'ann' in instance:
+                finding = instance['ann']
             finding = fix_finding_str(finding)
-            finding = escape_xml_str(finding)
-            finding = mojimoji.han_to_zen(finding)
+            # finding = escape_xml_str(finding)
+            # finding = mojimoji.han_to_zen(finding)
             head_items = ["line id: %i" % line_id]
             if '表示順' in instance:
-                curr_delimiter_flag = instance['表示順']
-                head_items.append("表示順: %i" % curr_delimiter_flag)
-                if not line_delimiter:
-                    if prev_delimiter_flag and (curr_delimiter_flag != prev_delimiter_flag or line_id == len(json_dict['読影所見'])):
+                curr_delimiter_flag = str(instance['表示順'])
+                head_items.append("表示順: %s" % curr_delimiter_flag)
+                if prev_delimiter_flag and (curr_delimiter_flag != prev_delimiter_flag or line_id == len(json_dict['読影所見'])):
 
-                        sub_filename = "表示順%s" % prev_delimiter_flag
+                    sub_filename = "表示順%s" % prev_delimiter_flag
 
-                        with open('%s.%s.txt' % (brat_file, sub_filename), 'w') as fot:
-                            fot.write('%s' % (''.join(char_toks)))
+                    with open('%s.%s.txt' % (brat_file, sub_filename), 'w') as fot:
+                        fot.write('%s' % (''.join(char_toks)))
 
-                        with open('%s.%s.ann' % (brat_file, sub_filename), 'w') as foa:
-                            for tid, ttype, char_b, char_e, t in tags:
-                                # assert ''.join([char_toks[i] for i in range(offs_b, offs_e)]) == t
-                                foa.write('%s\t%s %s %s\t%s\n' % (
-                                    tid,
-                                    tag2name[ttype],
-                                    char_b,
-                                    char_e,
-                                    t
-                                ))
+                    with open('%s.%s.ann' % (brat_file, sub_filename), 'w') as foa:
+                        for tid, ttype, char_b, char_e, t in tags:
+                            foa.write('%s\t%s %s %s\t%s\n' % (
+                                tid,
+                                tag2name[ttype],
+                                char_b,
+                                char_e,
+                                t
+                            ))
 
-                            for aid, key, tid, value in attrs:
-                                # assert ''.join([char_toks[i] for i in range(offs_b, offs_e)]) == t
+                        for aid, key, tid, value in attrs:
+
+                            if key != 'tid':
                                 foa.write('%s\t%s %s %s\n' % (
                                     aid,
                                     key,
                                     tid,
                                     value
                                 ))
-                        char_toks, tags, attrs = [], [], []
-                        char_offset, tag_offset, attr_offset = 0, 1, 1
+                    char_toks, tags, attrs = [], [], []
+                    char_offset, tag_offset, attr_offset = 0, 1, 1
 
-                        print('Converted json to brat, 表示順: %s processed.' % prev_delimiter_flag)
+                    print('Converted json to brat, 表示順: %s processed.' % prev_delimiter_flag)
                 prev_delimiter_flag = curr_delimiter_flag
 
             head_items.append("匿名ID: %s" % patient_id.strip())
@@ -227,8 +325,23 @@ def extract_brat_from_json(json_file, brat_file, line_delimiter=None):
                 if instance['タイトル'].strip() in ['I']:
                     continue
                 head_items.append("タイトル: %s" % instance['タイトル'].strip())
+            if '記載日' in instance:
+                dct_col_name = '記載日'
+            elif 'exam_date' in instance:
+                dct_col_name = 'exam_date'
+            elif '検査実施日' in instance:
+                dct_col_name = '検査実施日'
+            if dct_col_name:
+                head_items.append("記載日: %s" % str(instance[dct_col_name]).split('T')[0])
+            # print(head_items)
             head_line = "## %s" % ' ||| '.join(head_items)
-            xml_str = split_sent_to_xml(finding, head_line)
+            if sent_split:
+                xml_str = split_sent_to_xml(finding, head_line) #
+            else:
+                finding = '\n'.join(ssplit(mojimoji.zen_to_han(finding, kana=False)))
+                xml_str = '<doc>\n' + \
+                          '<line>%s</line>\n' % head_line + \
+                          '\n'.join(['<line>' + line.strip() + '</line>' for line in finding.split('\n')]) + '\n</doc>\n'
             xml_str = fix_xml_str(xml_str)
             tmp_char_toks, tmp_tags, tmp_attrs = [], [], []
             tmp_char_offset, tmp_tag_offset, tmp_attr_offset = char_offset, tag_offset, attr_offset
@@ -276,7 +389,6 @@ def extract_brat_from_json(json_file, brat_file, line_delimiter=None):
                 for tid, ttype, char_b, char_e, t in tmp_tags:
                     assert ''.join([char_toks[i] for i in range(char_b, char_e)]) == t
 
-
             except Exception as ex:
                 print('[ERROR] line number：', line_id)
                 print(ex)
@@ -288,71 +400,59 @@ def extract_brat_from_json(json_file, brat_file, line_delimiter=None):
                     print(char_b, char_e, ''.join([char_toks[i] for i in range(char_b, char_e)]), t)
                 print()
 
-            if line_delimiter:
-                if line_id % line_delimiter == 0 or line_id == len(json_dict['読影所見']):
-
-                    index_range_str = '%i-%i' % (100 * (math.ceil(line_id / 100) - int(line_delimiter / 100)) + 1, line_id)
-
-                    with open('%s.%s.txt' % (brat_file, index_range_str), 'w') as fot:
-                        fot.write('%s' % (''.join(char_toks)))
-
-                    with open('%s.%s.ann' % (brat_file, index_range_str), 'w') as foa:
-                        for tid, ttype, char_b, char_e, t in tags:
-                            # assert ''.join([char_toks[i] for i in range(offs_b, offs_e)]) == t
-                            foa.write('%s\t%s %s %s\t%s\n' % (
-                                tid,
-                                tag2name[ttype],
-                                char_b,
-                                char_e,
-                                t
-                            ))
-
-                        for aid, key, tid, value in attrs:
-                            # assert ''.join([char_toks[i] for i in range(offs_b, offs_e)]) == t
-                            foa.write('%s\t%s %s %s\n' % (
-                                aid,
-                                key,
-                                tid,
-                                value
-                            ))
-
-                    char_toks, tags, attrs = [], [], []
-                    char_offset, tag_offset, attr_offset = 0, 1, 1
-
-                    print('Converted json to brat, number of line processed: %s' % line_id)
-
 
 def combine_brat_to_json(json_file, brat_file, new_json):
+    from collections import defaultdict
     with open(json_file, 'r') as json_fi:
         json_dict = json.load(json_fi)
 
-        brat_dir, brat_name = brat_file.split('/')
-        brat_file_list = set([os.path.join(brat_dir, '.'.join(filename.split('.')[:2])) for filename in sorted(os.listdir(brat_dir)) if filename.startswith(brat_name)])
+        brat_dir, brat_name = os.path.split(brat_file)
+        brat_file_list = set([os.path.join(brat_dir, '.'.join(filename.split('.')[:-1])) for filename in sorted(os.listdir(brat_dir)) if filename.startswith(brat_name)])
+
         for file_name in brat_file_list:
-            with open('%s.txt' % file_name, 'r') as txt_fi, open('%s.ann' % file_name, 'r') as ann_fi:
-                tid2cert, cid2tag = {}, {}
-                for entity_line in ann_fi:
-                    entity_line = entity_line.strip()
-                    if entity_line.startswith('T'):
-                        tid, tag_type, b_cid, e_cid, surf = entity_line.split(None, 4)
-                        cid2tag['b' + b_cid] = (tid, tag_type)
-                        cid2tag['e' + e_cid] = (tid, tag_type)
-                    elif entity_line.startswith('A'):
-                        aid, cert, tid, cert_type = entity_line.split(None, 3)
-                        tid2cert[tid] = cert_type
+            print(file_name)
+            # if file_name != "data/brat/sample001":
+            #     continue
+            # print(file_name)
+            tid2cert, cid2tag, rid2rels = {}, {}, defaultdict(list)
+            ann_filename = '%s.ann' % file_name
+            if os.path.isfile(ann_filename):
+                with open(ann_filename, 'r') as ann_fi:
 
+                    for entity_line in ann_fi:
+                        try:
+                            entity_line = entity_line.strip()
+                            if entity_line.startswith('T'):
+                                tid, tag_type, b_cid, e_cid, surf = entity_line.split(None, 4)
+                                cid2tag['s' + b_cid] = (tid, tag_type)
+                                cid2tag['e' + e_cid] = (tid, tag_type)
+                            elif entity_line.startswith('A'):
+                                mod_id, mod_type, entity_id, mod_label = entity_line.split()
+                                if mod_type in ['certainty', 'state', 'type']:
+                                    tid2cert[entity_id] = (mod_type, mod_label)
+                                elif mod_type in ['DCT-Rel']:
+                                    rid2rels[entity_id].append((entity_id, entity_id, mod_label))
+                                else:
+                                    print("[error]", mod_type)
+                            elif entity_line.startswith('R'):
+                                rel_id, rel, tail_id, head_id = entity_line.split()
+                                rid2rels[rel_id].append((tail_id.split(':')[-1], head_id.split(':')[-1], rel))
+                        except Exception as ex:
+                            print(ex)
+                            print(entity_line)
+
+            with open('%s.txt' % file_name, 'r') as txt_fi:
                 char_list = list(txt_fi.read())
-
                 ''' writing raw_text to json'''
                 raw_str = ''.join(char_list)
                 line_id, patient_id = None, None
                 line_cache = []
                 for line in raw_str.split('\n'):
-                    z = re.match(r"## line id: (\w+) \|\|\| 匿名ID: (\w+)", line)
+                    z = re.match(r"## line id: (\w+)", line)
                     if z:
                         if line_id in json_dict['読影所見']:
                             json_dict['読影所見'][line_id]["raw_text"] = '\n'.join(line_cache)
-                        line_id, patient_id = z.groups()
+                        line_id = z.groups()[0]
                         line_cache = []
                     else:
                         line_cache.append(line)
@@ -360,40 +460,36 @@ def combine_brat_to_json(json_file, brat_file, new_json):
                     json_dict['読影所見'][line_id]["raw_text"] = '\n'.join(line_cache)
 
                 ''' writing new_ann to json'''
-                for key in sorted(cid2tag.keys(), key=lambda x: int(x[1:]), reverse=True):
+                for key in sorted(cid2tag.keys(), key=lambda x: (int(x[1:]), x[0]), reverse=True):
                     cid = int(key[1:])
                     tid, tag_type = cid2tag[key]
+                    # print(key, tag_type)
                     if key.startswith('e'):
                         char_list.insert(cid, '</%s>' % (name2tag[tag_type]))
-                    elif key.startswith('b'):
+                    elif key.startswith('s'):
                         elems = [name2tag[tag_type]]
                         elems.append('tid="%s"' % tid)
                         if tid in tid2cert:
-                            elems.append('certainty="%s"' % tid2cert[tid])
+                            elems.append('%s="%s"' % tid2cert[tid])
                         char_list.insert(cid, '<%s>' % (' '.join(elems)))
 
                 txt_line = ''.join(char_list)
-
                 line_id, patient_id = None, None
                 line_cache = []
                 for line in txt_line.split('\n'):
-                    z = re.match(r"## line id: (\w+) \|\|\| 匿名ID: (\w+)", line)
+                    z = re.match(r"## line id: (\w+)", line)
                     if z:
                         if line_id in json_dict['読影所見']:
-                            if "所見" in json_dict['読影所見'][line_id]:
-                                json_dict['読影所見'][line_id]["所見"] = '\n'.join(line_cache)
-                            elif "findings" in json_dict['読影所見'][line_id]:
-                                json_dict['読影所見'][line_id]["findings"] = '\n'.join(line_cache)
-                        line_id, patient_id = z.groups()
+                            json_dict['読影所見'][line_id]["ann"] = '\n'.join(line_cache)
+                            json_dict['読影所見'][line_id]["rels"] = '\n'.join([str(r) for rels in rid2rels.values() for r in rels])
+                        line_id = z.groups()[0]
                         line_cache = []
                     else:
                         line_cache.append(line)
-                if line_id in json_dict['読影所見']:
-                    if "所見" in json_dict['読影所見'][line_id]:
-                        json_dict['読影所見'][line_id]["所見"] = '\n'.join(line_cache)
-                    elif "findings" in json_dict['読影所見'][line_id]:
-                        json_dict['読影所見'][line_id]["findings"] = '\n'.join(line_cache)
 
+                if line_id in json_dict['読影所見']:
+                    json_dict['読影所見'][line_id]["ann"] = '\n'.join(line_cache)
+                    json_dict['読影所見'][line_id]["rels"] = '\n'.join([str(r) for rels in rid2rels.values() for r in rels])
         dump_json(json_dict, new_json)
 
 
@@ -456,18 +552,29 @@ parser.add_argument("--xml", dest="xml_file",
                     help="output xml file", metavar="XML_FILE")
 parser.add_argument("--njson", dest="new_json",
                     help="output new json", metavar="OUTPUT_FILE")
+parser.add_argument("--conll", dest="conll_file",
+                    help="conll file", metavar="CONLL_FILE")
+parser.add_argument("--norm", dest="normtime_file",)
 args = parser.parse_args()
 
 if args.mode in 'xls2json':
-    json_dict = read_xls(args.xls_file)
-    dump_json(json_dict, args.json_file)
+    finding_json = read_xls(args.xls_file)
+    dump_json(finding_json, args.json_file)
 elif args.mode in 'xls2txt':
     extract_txt_from_xls(args.xls_file, args.txt_file)
 elif args.mode == 'json2brat':
-    extract_brat_from_json(args.json_file, args.brat_file)
+    extract_brat_from_json(args.json_file, args.brat_file, sent_split=False)
 elif args.mode == 'brat2json':
     combine_brat_to_json(args.json_file, args.brat_file, args.new_json)
 elif args.mode == 'bio2xml':
     convert_bio_to_xml(args.bio_file, args.xml_file)
+elif args.mode == 'conll2brat':
+    doc_conll = data_utils.MultiheadConll(args.conll_file)
+    doc_conll.doc_to_brat(args.brat_file)
+elif args.mode == 'conll2xml':
+    doc_conll = data_utils.MultiheadConll(args.conll_file)
+    doc_conll.doc_to_xml(args.xml_file)
+elif args.mode == 'json2norm':
+    extract_normtime_from_json(args.json_file, args.normtime_file)
 
 
