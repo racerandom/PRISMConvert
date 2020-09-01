@@ -63,7 +63,7 @@ ncc, ou読影所見 won't have the comment lines.
 > --json abc.json \\  
 > --brat abc  
 
-The brat output will be like 'abc.表示順027.txt' and 'abc.表示順27.ann'.
+'--corpus' denotes the corpus type with 'ncc', 'ou' or 'mr'.The brat output will be like 'abc.表示順027.txt' and 'abc.表示順27.ann'.
 
 
 ## 3. append brat annotation to json
