@@ -1,6 +1,6 @@
 # Clinical Text Format Converter
 
-### Purpose: we made this tool of operating the original 'xls'/'csv' files for the purpose of annotation with 'brat'. For the confort of operation, we decide to keep all the original information in the central 'json' file. The operation mode includes: 'xls2json', 'json2brat', 'brat2json', etc.
+### Purpose: we made this tool of operating the original 'xls'/'csv' files for the purpose of annotation with 'brat'. For the comfort of operation, we decide to keep all the original information in the central 'json' file. The operation mode includes: 'xls2json', 'json2brat', 'brat2json', etc.
 
 
 ## Install
