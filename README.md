@@ -59,7 +59,7 @@ ncc, ou読影所見 won't have the comment lines.
 ### Run:
 > python format\_converter.py \\  
 > --mode 'json2brat' \\ 
-> --corpus 'ncc' \\ # 'ncc', 'ou' or 'mr' 
+> --corpus 'ncc' \\  
 > --json abc.json \\ 
 > --brat abc  
 
