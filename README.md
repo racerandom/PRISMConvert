@@ -49,7 +49,7 @@ Extracting xml annotation from the json file and concat them into the brat files
 
 > \#\# line id: 1 ||| 表示順: 1 ||| 匿名ID: 3276171 ||| タイトル: S ||| 記載日: 2014-03-20
 
-*ncc, ou読影所見 won't have the comment lines.
+ncc, ou読影所見 won't have the comment lines.
 
 #### An example of the brat interface:
 
