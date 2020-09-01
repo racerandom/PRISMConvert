@@ -8,9 +8,7 @@
 > cd PRISMConverter  
 
 Required Packages(pip): 
-pandas 
-mojimoji 
-textformatting  
+pandas, mojimoji, textformatting  
 
 ## 1. convert xls to json
 
