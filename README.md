@@ -7,10 +7,10 @@
 > git clone https://github.com/racerandom/PRISMConvert.git  
 > cd PRISMConverter  
 
-Required Packages(pip):
-pandas
-mojimoji
-textformatting 
+Required Packages(pip): 
+pandas 
+mojimoji 
+textformatting  
 
 ## 1. convert xls to json
 
