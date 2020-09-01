@@ -35,6 +35,8 @@ name2tag = {v:k for k,v in tag2name.items()}
 def fix_finding_str(finding_str):
     finding_str = finding_str.replace('\r</', '</')
     finding_str = finding_str.replace('\n</', '</')
+    finding_str = finding_str.replace('＜', '&lt;')
+    finding_str = finding_str.replace('＞', '&gt;')
     return finding_str
 
 
@@ -45,17 +47,18 @@ def fix_xml_str(xml_str):
     xml_str = xml_str.replace('<ABD US>', '《ABD US》')
     xml_str = xml_str.replace('<CHEST>', '《CHEST》')
     xml_str = xml_str.replace('<CHEST；CT>', '《CHEST；CT》')
+    xml_str = xml_str.replace('<CHEST;CT>', '《CHEST；CT》')
     xml_str = xml_str.replace('<CHEST: CT>', '《CHEST: CT》')
-    xml_str = xml_str.replace('<Liver>', 'Liver')
+    xml_str = xml_str.replace('<Liver>', '《Liver》')
+    xml_str = xml_str.replace('<経過>', '《経過》')
+    xml_str = xml_str.replace('<カンファレンスのpoint>', '《カンファレンスのpoint》')
     xml_str = xml_str.replace(', correction=', ' correction=')
-    xml_str = xml_str.replace('<<a', '<a')
-    xml_str = xml_str.replace('</a>>', '</a>')
-    xml_str = xml_str.replace('<<d', '<d')
-    xml_str = xml_str.replace('</d>>', '</d>')
-    xml_str = xml_str.replace('<<f', '<f')
-    xml_str = xml_str.replace('</f>>', '</f>')
-    xml_str = xml_str.replace('<<c', '<c')
-    xml_str = xml_str.replace('</c>>', '</c>')
+    xml_str = xml_str.replace('<長期経過>', '《長期経過》')
+    xml_str = xml_str.replace('<予習>', '《予習》')
+    xml_str = xml_str.replace('<L/D>', '《L/D》')
+    xml_str = xml_str.replace('&', '&amp;')
+    xml_str = xml_str.replace('<<', '<')
+    xml_str = xml_str.replace('>>', '>')
     xml_str = xml_str.replace('="suspicious>', '="suspicious">')
     return xml_str
 
@@ -258,10 +261,10 @@ def extract_normtime_from_json(json_file, normtime_file):
             print(f"output file: {out_file}...")
 
 
-def extract_brat_from_json(json_file, brat_file, sent_split=False):
+def extract_brat_from_json(json_file, brat_file, corpus,
+                           rid_col, pid_col, date_col, type_col, ann_col,
+                           sent_split=False):
     import mojimoji
-
-    line_count, char_count = [], []
 
     with open(json_file) as json_fi:
         json_dict = json.load(json_fi)
@@ -270,78 +273,80 @@ def extract_brat_from_json(json_file, brat_file, sent_split=False):
         prev_delimiter_flag = None
         for line_id, instance in json_dict['読影所見'].items():
 
+            '''
+            comment line: ## line id: 1 ||| 表示順: 1 ||| 匿名ID: 3276171 ||| タイトル: S ||| 記載日: 2014-03-20
+            '''
             line_id = int(line_id)
+            comment_items = [f"line id: {line_id}"]
 
-            patient_id = str(instance['匿名ID' if '匿名ID' in instance else 'ID'])
-            if '所見' in instance:
-                finding = instance['所見']
-            elif 'findings_demasked' in instance:
-                finding = instance['findings_demasked']
-            # elif '記事内容' in instance:
-            #     finding = instance['記事内容']
-            elif 'ann' in instance:
-                finding = instance['ann']
+            patient_id = str(instance[pid_col]).strip()
+            report_id = str(instance[rid_col])
+            curr_delimiter_flag = report_id
+            comment_items.append(f"表示順: {curr_delimiter_flag}")
+
+            if ann_col not in instance:
+                continue
+            finding = instance[ann_col]
             finding = fix_finding_str(finding)
-            # finding = escape_xml_str(finding)
+            # finding = fix_xml_str(finding)
             # finding = mojimoji.han_to_zen(finding)
-            head_items = ["line id: %i" % line_id]
-            if '表示順' in instance:
-                curr_delimiter_flag = str(instance['表示順'])
-                head_items.append("表示順: %s" % curr_delimiter_flag)
-                if prev_delimiter_flag and (curr_delimiter_flag != prev_delimiter_flag or line_id == len(json_dict['読影所見'])):
+            # print(line_id, report_id)
 
-                    sub_filename = "表示順%s" % prev_delimiter_flag
-
-                    with open('%s.%s.txt' % (brat_file, sub_filename), 'w') as fot:
-                        fot.write('%s' % (''.join(char_toks)))
-
-                    with open('%s.%s.ann' % (brat_file, sub_filename), 'w') as foa:
-                        for tid, ttype, char_b, char_e, t in tags:
-                            foa.write('%s\t%s %s %s\t%s\n' % (
-                                tid,
-                                tag2name[ttype],
-                                char_b,
-                                char_e,
-                                t
-                            ))
-
-                        for aid, key, tid, value in attrs:
-
-                            if key != 'tid':
-                                foa.write('%s\t%s %s %s\n' % (
-                                    aid,
-                                    key,
-                                    tid,
-                                    value
-                                ))
-                    char_toks, tags, attrs = [], [], []
-                    char_offset, tag_offset, attr_offset = 0, 1, 1
-
-                    print('Converted json to brat, 表示順: %s processed.' % prev_delimiter_flag)
+            if not prev_delimiter_flag:
                 prev_delimiter_flag = curr_delimiter_flag
 
-            head_items.append("匿名ID: %s" % patient_id.strip())
-            if 'タイトル' in instance:
-                if instance['タイトル'].strip() in ['I']:
+            if curr_delimiter_flag != prev_delimiter_flag:
+
+                out_rid = f"表示順{prev_delimiter_flag}"
+
+                with open(f'{brat_file}.{out_rid}.txt', 'w') as fot:
+                    fot.write('%s' % (''.join(char_toks)))
+
+                with open(f'{brat_file}.{out_rid}.ann', 'w') as foa:
+                    for tid, ttype, char_b, char_e, t in tags:
+                        foa.write('%s\t%s %s %s\t%s\n' % (
+                            tid,
+                            tag2name[ttype],
+                            char_b,
+                            char_e,
+                            t
+                        ))
+
+                    for aid, key, tid, value in attrs:
+
+                        if key != 'tid':
+                            foa.write('%s\t%s %s %s\n' % (
+                                aid,
+                                key,
+                                tid,
+                                value
+                            ))
+                print('Converted json to brat, 表示順: %s processed.' % prev_delimiter_flag)
+
+                # reset caches
+                char_toks, tags, attrs = [], [], []
+                char_offset, tag_offset, attr_offset = 0, 1, 1
+                prev_delimiter_flag = curr_delimiter_flag
+
+            comment_items.append(f"匿名ID: {patient_id}")
+
+            if type_col in instance:
+                if instance[type_col].strip() in ['I']:
                     continue
-                head_items.append("タイトル: %s" % instance['タイトル'].strip())
-            if '記載日' in instance:
-                dct_col_name = '記載日'
-            elif 'exam_date' in instance:
-                dct_col_name = 'exam_date'
-            elif '検査実施日' in instance:
-                dct_col_name = '検査実施日'
-            if dct_col_name:
-                head_items.append("記載日: %s" % str(instance[dct_col_name]).split('T')[0])
-            # print(head_items)
-            head_line = "## %s" % ' ||| '.join(head_items)
+                comment_items.append("タイトル: %s" % instance['タイトル'].strip())
+
+            comment_items.append(f"記載日: {str(instance[date_col]).split('T')[0]}")
+            head_line = "## %s" % ' ||| '.join(comment_items)
+
             if sent_split:
-                xml_str = split_sent_to_xml(finding, head_line) #
+                xml_str = split_sent_to_xml(finding, head_line)
             else:
-                finding = '\n'.join(ssplit(mojimoji.zen_to_han(finding, kana=False)))
+                if corpus in ['ou', 'ncc']:
+                    finding = '\n'.join(ssplit(mojimoji.zen_to_han(finding, kana=False)))
                 xml_str = '<doc>\n' + \
-                          '<line>%s</line>\n' % head_line + \
-                          '\n'.join(['<line>' + line.strip() + '</line>' for line in finding.split('\n')]) + '\n</doc>\n'
+                          (f'<line>{head_line}</line>\n' if corpus in ['mr'] else '') + \
+                          '\n'.join([f'<line>{line.strip()}</line>' for line in finding.split('\n')]) + '\n</doc>\n'
+
             xml_str = fix_xml_str(xml_str)
             tmp_char_toks, tmp_tags, tmp_attrs = [], [], []
             tmp_char_offset, tmp_tag_offset, tmp_attr_offset = char_offset, tag_offset, attr_offset
@@ -358,7 +363,7 @@ def extract_brat_from_json(json_file, brat_file, sent_split=False):
                                     tag.tag,
                                     tmp_char_offset,
                                     tmp_char_offset + len(char_seg),
-                                    tag.text.strip()
+                                    tag.text
                                 ))
                                 if tag.attrib:
                                     for key, value in tag.attrib.items():
@@ -390,7 +395,7 @@ def extract_brat_from_json(json_file, brat_file, sent_split=False):
                     assert ''.join([char_toks[i] for i in range(char_b, char_e)]) == t
 
             except Exception as ex:
-                print('[ERROR] line number：', line_id)
+                print(f'[ERROR] line number：{line_id}, rid: {report_id}')
                 print(ex)
                 print(xml_str)
                 print()
@@ -399,6 +404,32 @@ def extract_brat_from_json(json_file, brat_file, sent_split=False):
                 for tid, ttype, char_b, char_e, t in tmp_tags:
                     print(char_b, char_e, ''.join([char_toks[i] for i in range(char_b, char_e)]), t)
                 print()
+
+            if line_id == len(json_dict['読影所見']) and char_toks:
+                out_rid = f"表示順{curr_delimiter_flag}"
+
+                with open(f'{brat_file}.{out_rid}.txt', 'w') as fot:
+                    fot.write('%s' % (''.join(char_toks)))
+
+                with open(f'{brat_file}.{out_rid}.ann', 'w') as foa:
+                    for tid, ttype, char_b, char_e, t in tags:
+                        foa.write('%s\t%s %s %s\t%s\n' % (
+                            tid,
+                            tag2name[ttype],
+                            char_b,
+                            char_e,
+                            t
+                        ))
+
+                    for aid, key, tid, value in attrs:
+                        if key != 'tid':
+                            foa.write('%s\t%s %s %s\n' % (
+                                aid,
+                                key,
+                                tid,
+                                value
+                            ))
+                print('Converted json to brat, 表示順: %s processed.' % prev_delimiter_flag)
 
 
 def combine_brat_to_json(json_file, brat_file, new_json):
@@ -538,6 +569,8 @@ def convert_bio_to_xml(bio_file, xml_file):
 parser = ArgumentParser(description='Convert xls 読影所見 to the json format')
 parser.add_argument("--mode", dest="mode",
                     help="convert_mode, i.e. xls2txt, xls2json, json2brat and brat2json", metavar="CONVERT_MODE")
+parser.add_argument("--corpus",
+                    help="corpus: ncc, ou, mr", metavar="CORPUS")
 parser.add_argument("--xls", dest="xls_file",
                     help="input excel file", metavar="INPUT_FILE")
 parser.add_argument("--json", dest="json_file",
@@ -563,7 +596,23 @@ if args.mode in 'xls2json':
 elif args.mode in 'xls2txt':
     extract_txt_from_xls(args.xls_file, args.txt_file)
 elif args.mode == 'json2brat':
-    extract_brat_from_json(args.json_file, args.brat_file, sent_split=False)
+    if args.corpus in ['mr']:
+        extract_brat_from_json(args.json_file, args.brat_file, args.corpus,
+                               rid_col='表示順', pid_col='匿名ID',
+                               date_col='記載日', type_col='タイトル', ann_col='ann',
+                               sent_split=False)
+    elif args.corpus in ['ou']:
+        extract_brat_from_json(args.json_file, args.brat_file, args.corpus,
+                               rid_col='表示順', pid_col='匿名ID',
+                               date_col='検査実施日', type_col='タイトル', ann_col='所見',
+                               sent_split=False)
+    elif args.corpus in ['ncc']:
+        extract_brat_from_json(args.json_file, args.brat_file, args.corpus,
+                               rid_col='ID', pid_col='_id',
+                               date_col='exam_date', type_col='タイトル', ann_col='findings_demasked',
+                               sent_split=False)
+    else:
+        raise Exception(f"Uknown corpus {args.corpus}")
 elif args.mode == 'brat2json':
     combine_brat_to_json(args.json_file, args.brat_file, args.new_json)
 elif args.mode == 'bio2xml':

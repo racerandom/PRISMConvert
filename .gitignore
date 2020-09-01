@@ -8,3 +8,4 @@ saved_model/*
 *.ipynb
 *.sh
 .DS_Store
+tmp/*
