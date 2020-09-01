@@ -284,18 +284,12 @@ def extract_brat_from_json(json_file, brat_file, corpus,
             curr_delimiter_flag = report_id
             comment_items.append(f"表示順: {curr_delimiter_flag}")
 
-            if ann_col not in instance:
-                continue
-            finding = instance[ann_col]
-            finding = fix_finding_str(finding)
-            # finding = fix_xml_str(finding)
-            # finding = mojimoji.han_to_zen(finding)
             # print(line_id, report_id)
 
             if not prev_delimiter_flag:
                 prev_delimiter_flag = curr_delimiter_flag
 
-            if curr_delimiter_flag != prev_delimiter_flag:
+            if tags and curr_delimiter_flag != prev_delimiter_flag:
 
                 out_rid = f"表示順{prev_delimiter_flag}"
 
@@ -327,6 +321,11 @@ def extract_brat_from_json(json_file, brat_file, corpus,
                 char_toks, tags, attrs = [], [], []
                 char_offset, tag_offset, attr_offset = 0, 1, 1
                 prev_delimiter_flag = curr_delimiter_flag
+
+            if ann_col not in instance:
+                continue
+            finding = instance[ann_col]
+            finding = fix_finding_str(finding)
 
             comment_items.append(f"匿名ID: {patient_id}")
 
