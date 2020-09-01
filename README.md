@@ -10,7 +10,7 @@
 Required Packages(pip):
 pandas
 mojimoji
-textformatting
+textformatting 
 
 ## 1. convert xls to json
 
